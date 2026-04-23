@@ -23,6 +23,7 @@ from matplotlib.patches import FancyArrowPatch, Rectangle
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 from matplotlib.colors import Normalize, LinearSegmentedColormap
+from matplotlib.lines import Line2D
 
 from collections import defaultdict
 
@@ -521,9 +522,10 @@ def compute_stats(df):
 
     failed_count = int(failed_mask.sum())
 
-    failed_xt_sum = float(df.loc[failed_mask, 'xt_start'].sum()) if failed_count else 0.0
+    failed_xt_inv = (1.0 - df.loc[failed_mask, 'xt_end']) if failed_count else pd.Series([], dtype=float)
+    failed_xt_sum = float(failed_xt_inv.sum()) if failed_count else 0.0
 
-    failed_xt_mean = float(df.loc[failed_mask, 'xt_start'].mean()) if failed_count else 0.0
+    failed_xt_mean = float(failed_xt_inv.mean()) if failed_count else 0.0
 
 
 
@@ -661,17 +663,141 @@ def compute_parallel_offsets(df, offset_step=1.5):
 
 
 
-def _action_style(is_won, is_top):
+def _draw_comet(ax, x0, y0, x1, y1, color, alpha, lw_scale, seg_alpha_factors=None):
 
-    if not is_won:
+    segs = 10
 
-        return 1.0, ':', 0.28, 12, 18
+    ts = np.linspace(0.0, 1.0, segs + 1)
 
-    if is_top:
+    if seg_alpha_factors is None:
 
-        return 2.0, '--', 0.95, 22, 62
+        seg_alpha_factors = np.ones(segs, dtype=float)
 
-    return 1.3, '--', 0.42, 14, 32
+    for i in range(segs):
+
+        t0 = ts[i]
+
+        t1 = ts[i + 1]
+
+        xa = x0 + (x1 - x0) * t0
+
+        ya = y0 + (y1 - y0) * t0
+
+        xb = x0 + (x1 - x0) * t1
+
+        yb = y0 + (y1 - y0) * t1
+
+        seg_alpha = alpha * (0.12 + 0.88 * t1) * float(seg_alpha_factors[i])
+
+        seg_lw = 0.90 + lw_scale * t1
+
+        ax.plot([xa, xb], [ya, yb], color=color, linewidth=seg_lw, alpha=seg_alpha,
+
+                zorder=4, solid_capstyle='round')
+
+    start_size = 10.0 + 5.0 * alpha
+
+    ax.scatter([x0], [y0], s=start_size, marker='o', c=[color],
+
+               edgecolors='white', linewidths=0.35, alpha=max(0.12, alpha * 0.75), zorder=6)
+
+    end_size = 34.0 + 18.0 * alpha
+
+    ax.scatter([x1], [y1], s=end_size, marker='h', c=[color],
+
+               edgecolors='white', linewidths=0.45, alpha=min(1.0, alpha + 0.15), zorder=7)
+
+
+
+def _segment_list(x0, y0, x1, y1, segs=10):
+
+    ts = np.linspace(0.0, 1.0, segs + 1)
+
+    out = []
+
+    for i in range(segs):
+
+        t0 = ts[i]
+
+        t1 = ts[i + 1]
+
+        xa = x0 + (x1 - x0) * t0
+
+        ya = y0 + (y1 - y0) * t0
+
+        xb = x0 + (x1 - x0) * t1
+
+        yb = y0 + (y1 - y0) * t1
+
+        out.append((xa, ya, xb, yb))
+
+    return out
+
+
+
+def _seg_intersect(a, b, c, d, eps=1e-9):
+
+    def orient(p, q, r):
+
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    def on_seg(p, q, r):
+
+        return min(p[0], r[0]) - eps <= q[0] <= max(p[0], r[0]) + eps and min(p[1], r[1]) - eps <= q[1] <= max(p[1], r[1]) + eps
+
+    o1 = orient(a, b, c)
+
+    o2 = orient(a, b, d)
+
+    o3 = orient(c, d, a)
+
+    o4 = orient(c, d, b)
+
+    if (o1 * o2 < -eps) and (o3 * o4 < -eps):
+
+        return True
+
+    if abs(o1) <= eps and on_seg(a, c, b):
+
+        return True
+
+    if abs(o2) <= eps and on_seg(a, d, b):
+
+        return True
+
+    if abs(o3) <= eps and on_seg(c, a, d):
+
+        return True
+
+    if abs(o4) <= eps and on_seg(c, b, d):
+
+        return True
+
+    return False
+
+
+
+def _action_visual(row, pos_ref):
+
+    if not row['is_won']:
+
+        return '#aab2be', 0.22, 1.55, 0
+
+    dxt = float(row['delta_xt_adj'])
+
+    if dxt <= 0.0:
+
+        return '#ffd64d', 0.08, 1.30, 1
+
+    rel = float(np.clip(dxt / (pos_ref + 1e-9), 0.0, 1.0))
+
+    color = matplotlib.colors.to_hex(plt.cm.YlOrRd(0.28 + 0.72 * rel))
+
+    alpha = 0.34 + 0.62 * rel
+
+    lw_scale = 1.70 + 2.10 * rel
+
+    return color, alpha, lw_scale, 2
 
 
 
@@ -679,73 +805,99 @@ def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
 
     pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.95)
 
-    fig, ax = pitch.draw(figsize=(FIG_W, FIG_H))
+    fig, ax = pitch.draw(figsize=(9.6, 7.2))
 
     fig.set_facecolor('#1a1a2e')
 
-    fig.set_dpi(FIG_DPI)
-
-    ax.axvline(x=FINAL_THIRD_LINE_X, color='#FFD54F', lw=1.0, alpha=0.20)
+    fig.set_dpi(150)
 
     ax.axvline(x=HALF_LINE_X, color='#ffffff', lw=0.6, alpha=0.12, linestyle='--')
 
 
 
-    top_idxs = set()
-
-    if not df.empty:
-
-        df_s = df[df['outcome'] == 'successful']
-
-        if not df_s.empty:
-
-            top_idxs = set(df_s.sort_values('delta_xt_adj', ascending=False).head(top_n_highlight).index)
-
-
-
     xs0_off, ys0_off, xs1_off, ys1_off = compute_parallel_offsets(df, offset_step=offset_step)
 
+    pos_vals = df.loc[(df['outcome'] == 'successful') & (df['delta_xt_adj'] > 0), 'delta_xt_adj'].to_numpy()
 
+    pos_ref = float(np.percentile(pos_vals, 90)) if pos_vals.size else 1.0
+
+    pos_ref = max(pos_ref, 1e-6)
+
+
+
+    scores = np.where(df['is_won'].to_numpy(), df['delta_xt_adj'].to_numpy(dtype=float), -1e9)
+
+    seg_lists = [
+        _segment_list(xs0_off[i], ys0_off[i], xs1_off[i], ys1_off[i], segs=10)
+        for i in range(len(df))
+    ]
+
+    seg_alpha_factors = [np.ones(10, dtype=float) for _ in range(len(df))]
+
+    for i in range(len(df)):
+
+        for j in range(len(df)):
+
+            if i == j or scores[j] <= scores[i]:
+
+                continue
+
+            for si, s1 in enumerate(seg_lists[i]):
+
+                if seg_alpha_factors[i][si] < 0.35:
+
+                    continue
+
+                a = (s1[0], s1[1])
+
+                b = (s1[2], s1[3])
+
+                for s2 in seg_lists[j]:
+
+                    c = (s2[0], s2[1])
+
+                    d = (s2[2], s2[3])
+
+                    if _seg_intersect(a, b, c, d):
+
+                        seg_alpha_factors[i][si] = 0.22
+
+                        break
 
     def draw_row(row, pos):
 
-        color = CMAP_ACTION(NORM_ACTION(float(row['xt_end'])))
-
-        is_top = row.name in top_idxs
-
-        lw, ls, alpha, s_start, s_end = _action_style(row['is_won'], is_top)
+        color, alpha, lw_scale, layer = _action_visual(row, pos_ref)
 
         ox0, oy0 = xs0_off[pos], ys0_off[pos]
 
         ox1, oy1 = xs1_off[pos], ys1_off[pos]
 
 
+        _draw_comet(
+            ax,
+            ox0,
+            oy0,
+            ox1,
+            oy1,
+            color=color,
+            alpha=alpha,
+            lw_scale=lw_scale,
+            seg_alpha_factors=seg_alpha_factors[pos],
+        )
 
-        ax.plot([ox0, ox1], [oy0, oy1], color=color, linestyle=ls, linewidth=lw, alpha=alpha, zorder=3, solid_capstyle='round')
-
-        pitch.scatter(ox0, oy0, s=s_start, marker='o', facecolors='none', edgecolors=color, linewidths=1.2 if is_top else 0.9, ax=ax, zorder=5, alpha=alpha)
-
-        pitch.scatter(ox1, oy1, s=s_end, marker='D', facecolors=color, edgecolors='white', linewidths=0.7 if is_top else 0.4, ax=ax, zorder=6, alpha=alpha)
+        return layer
 
 
 
-        if has_video_value(row['video']):
+    draw_order = sorted(range(len(df)), key=lambda i: (int(_action_visual(df.iloc[i], pos_ref)[3]), float(scores[i])))
 
-            pitch.scatter(ox0, oy0, s=s_start+40, marker='o', facecolors='none', edgecolors='#FFD54F', linewidths=1.8, ax=ax, zorder=7, alpha=alpha)
+    rows = list(df.iterrows())
 
+    for pos in draw_order:
 
+        _, row = rows[pos]
 
-    for pos, (idx, row) in enumerate(df.iterrows()):
-
-        if idx not in top_idxs:
-
-            draw_row(row, pos)
-
-    for pos, (idx, row) in enumerate(df.iterrows()):
-
-        if idx in top_idxs:
-
-            draw_row(row, pos)
+        draw_row(row, pos)
 
 
 
@@ -755,51 +907,65 @@ def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
 
     legend_items = [
 
-        ax.scatter([], [], s=18, marker='o', facecolors='none', edgecolors='#fd8d3c', linewidths=1.2, label='Origin'),
+        Line2D([0], [0], color=matplotlib.colors.to_hex(plt.cm.YlOrRd(0.90)), lw=2.8,
+               marker='h', markersize=9, markerfacecolor=matplotlib.colors.to_hex(plt.cm.YlOrRd(0.90)),
+               markeredgecolor='white', markeredgewidth=0.6, alpha=0.96,
+               label='Successful (+ΔxT)'),
 
-        ax.scatter([], [], s=45, marker='D', facecolors='#fd8d3c', edgecolors='white', linewidths=0.7, label='Destination'),
+        Line2D([0], [0], color='#ffd64d', lw=2.3,
+               marker='h', markersize=9, markerfacecolor='#ffd64d',
+               markeredgecolor='white', markeredgewidth=0.6, alpha=0.92,
+               label='Successful (≤0 ΔxT)'),
 
-        ax.plot([], [], color='#fd8d3c', linestyle='--', lw=2.0, label=f'Top {top_n_highlight}')[0],
-
-        ax.plot([], [], color='#aaaaaa', linestyle=':', lw=1.0, label='Failed')[0],
+        Line2D([0], [0], color='#aab2be', lw=2.3,
+               marker='o', markersize=8, markerfacecolor='#aab2be',
+               markeredgecolor='white', markeredgewidth=0.6, alpha=0.90,
+               label='Failed'),
 
     ]
 
-    legend = ax.legend(handles=legend_items, loc='upper left', bbox_to_anchor=(0.01, 0.99), frameon=True, facecolor='#1a1a2e', edgecolor='#444466', fontsize='xx-small', labelspacing=0.35, borderpad=0.5, handletextpad=0.4)
+    legend = ax.legend(handles=legend_items, loc='upper center', bbox_to_anchor=(0.5, -0.095),
+
+                       ncol=3, frameon=True, facecolor='#1a1a2e', edgecolor='#6b6b8f',
+
+                       fontsize='small', labelspacing=0.45, borderpad=0.70, handletextpad=0.65,
+                       columnspacing=1.8)
 
     for t in legend.get_texts():
 
         t.set_color('white')
 
-    legend.get_frame().set_alpha(0.90)
+    legend.get_frame().set_alpha(0.98)
 
 
 
-    sm = plt.cm.ScalarMappable(cmap=CMAP_ACTION, norm=NORM_ACTION)
+    sm = plt.cm.ScalarMappable(cmap=plt.cm.YlOrRd, norm=Normalize(vmin=0.0, vmax=pos_ref))
 
-    cbar = fig.colorbar(sm, ax=ax, fraction=0.025, pad=0.01, shrink=0.72)
+    cbar = fig.colorbar(sm, ax=ax, fraction=0.018, pad=0.01, shrink=0.72)
 
-    cbar.set_label('xT end', color='#cccccc', fontsize=7, labelpad=3)
+    cbar.set_label('ΔxT', color='#ffe6bf', fontsize=9, labelpad=3)
 
-    cbar.ax.yaxis.set_tick_params(color='#cccccc', labelsize=6)
+    cbar.ax.yaxis.set_tick_params(color='#ffe6bf', labelsize=7)
 
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='#cccccc')
+    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='#ffe6bf')
 
-
-
-    fig.patches.append(FancyArrowPatch((0.44, 0.04), (0.54, 0.04), transform=fig.transFigure, arrowstyle='-|>', mutation_scale=13, linewidth=1.8, color='#cccccc'))
-
-    fig.text(0.49, 0.015, 'Attack Direction', ha='center', va='center', fontsize=8, color='#cccccc')
-
-
-
-    fig.tight_layout()
+    fig.subplots_adjust(left=0.01, right=0.92, top=0.975, bottom=0.10)
 
     fig.canvas.draw()
+    ax_pos = ax.get_position()
+    cx = (ax_pos.x0 + ax_pos.x1) / 2
+    strip_mid = ax_pos.y0 - 0.016
+    fig.patches.append(FancyArrowPatch(
+        (cx - 0.055, strip_mid), (cx + 0.055, strip_mid),
+        transform=fig.transFigure, arrowstyle='-|>',
+        mutation_scale=14, linewidth=1.9, color='#cccccc'))
+    fig.text(cx, strip_mid - 0.008, 'Attack Direction',
+             ha='center', va='top', transform=fig.transFigure,
+             fontsize=9.5, color='#cccccc')
 
     buf = BytesIO()
 
-    fig.savefig(buf, format='png', dpi=FIG_DPI, facecolor=fig.get_facecolor())
+    fig.savefig(buf, format='png', dpi=150, facecolor=fig.get_facecolor(), bbox_inches='tight')
 
     buf.seek(0)
 
@@ -807,33 +973,227 @@ def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
 
 
 
-def draw_corridor_heatmap(df, title='Zone Heatmap - Completed Actions'):
-
-    df_s = df[df['is_won']].copy()
+def _zone_bins():
 
     x_bins = np.linspace(0, FIELD_X, 7)
 
-    corridors = {'left': (LANE_LEFT_MIN, FIELD_Y), 'center': (LANE_RIGHT_MAX, LANE_LEFT_MIN), 'right': (0.0, LANE_RIGHT_MAX)}
+    y_bins = np.array([0.0, LANE_RIGHT_MAX, LANE_LEFT_MIN, FIELD_Y])
 
-    counts = {}
-
-    for cname, (y0, y1) in corridors.items():
-
-        arr = np.zeros(6, dtype=int)
-
-        for i in range(6):
-
-            x0, x1 = x_bins[i], x_bins[i+1]
-
-            arr[i] = int(((df_s.x_end >= x0) & (df_s.x_end < x1) & (df_s.y_end >= y0) & (df_s.y_end < y1)).sum())
-
-        counts[cname] = arr
+    return x_bins, y_bins
 
 
 
-    vmax = max(1, int(np.concatenate(list(counts.values())).max()))
+def _zone_counts(df_s, x_col, y_col):
+
+    x_bins, y_bins = _zone_bins()
+
+    counts = np.zeros((3, 6), dtype=int)
+
+    if df_s.empty:
+
+        return counts
+
+    ix = np.clip(np.searchsorted(x_bins, df_s[x_col].to_numpy(), side='right') - 1, 0, 5)
+
+    iy = np.clip(np.searchsorted(y_bins, df_s[y_col].to_numpy(), side='right') - 1, 0, 2)
+
+    for cx, cy in zip(ix, iy):
+
+        counts[cy, cx] += 1
+
+    return counts
+
+
+
+def draw_single_zone_heatmap(df, mode='origin', title='Zone Heatmap'):
+
+    df_s = df[df['is_won']].copy()
+
+    x_bins, y_bins = _zone_bins()
+
+    if mode == 'origin':
+
+        counts = _zone_counts(df_s, 'x_start', 'y_start')
+
+    else:
+
+        counts = _zone_counts(df_s, 'x_end', 'y_end')
+
+    cmap_h = LinearSegmentedColormap.from_list('wr', ['#ffffff', '#ffecec', '#ffbfbf', '#ff8080', '#ff3b3b', '#ff0000'])
+
+    norm_h = Normalize(vmin=0, vmax=max(1, int(counts.max())))
+
+    fig, ax = plt.subplots(1, 1, figsize=(FIG_W, FIG_H), dpi=FIG_DPI)
+
+    fig.set_facecolor('#1a1a2e')
 
     pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.95)
+
+    pitch.draw(ax=ax)
+
+    for row in range(3):
+
+        for col in range(6):
+
+            x0, x1 = x_bins[col], x_bins[col + 1]
+
+            y0, y1 = y_bins[row], y_bins[row + 1]
+
+            val = int(counts[row, col])
+
+            if val == 0:
+
+                continue
+
+            ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0,
+
+                                   facecolor=cmap_h(norm_h(val)), edgecolor=(1, 1, 1, 0.12),
+
+                                   lw=0.6, alpha=0.92, zorder=2))
+
+            vmax_local = max(1, int(counts.max()))
+
+            ax.text((x0 + x1) / 2, (y0 + y1) / 2, str(val),
+
+                    ha='center', va='center', zorder=4, fontsize=10,
+
+                    color='#ffffff' if val >= max(2, int(vmax_local * 0.35)) else '#1d1d1d',
+
+                    fontweight='600')
+
+    ax.set_title(title, fontsize=11, color='#ffffff', pad=6)
+
+    ax.axhline(y=LANE_LEFT_MIN, color='#ffffff', lw=0.5, alpha=0.12, linestyle='--', zorder=3)
+
+    ax.axhline(y=LANE_RIGHT_MAX, color='#ffffff', lw=0.5, alpha=0.12, linestyle='--', zorder=3)
+
+    fig.tight_layout()
+
+    fig.canvas.draw()
+
+    buf = BytesIO()
+
+    fig.savefig(buf, format='png', dpi=FIG_DPI, facecolor=fig.get_facecolor(), bbox_inches='tight')
+
+    buf.seek(0)
+
+    return Image.open(buf), ax, fig
+
+
+
+def draw_zone_heatmaps_panel(df, title='Zone Heatmaps - Origin and Destination'):
+
+    df_s = df[df['is_won']].copy()
+
+    x_bins, y_bins = _zone_bins()
+
+    origin_counts = _zone_counts(df_s, 'x_start', 'y_start')
+
+    dest_counts = _zone_counts(df_s, 'x_end', 'y_end')
+
+    cmap_h = LinearSegmentedColormap.from_list('wr', ['#ffffff', '#ffecec', '#ffbfbf', '#ff8080', '#ff3b3b', '#ff0000'])
+
+    norm_origin = Normalize(vmin=0, vmax=max(1, int(origin_counts.max())))
+
+    norm_dest = Normalize(vmin=0, vmax=max(1, int(dest_counts.max())))
+
+    fig, axes = plt.subplots(1, 2, figsize=(FIG_W * 2.9, FIG_H * 1.55), dpi=FIG_DPI)
+
+    fig.set_facecolor('#1a1a2e')
+
+    pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.95)
+
+    for ax, counts, norm_h, subtitle in zip(
+        axes,
+        [origin_counts, dest_counts],
+        [norm_origin, norm_dest],
+        ['Origin', 'Destination']
+    ):
+
+        pitch.draw(ax=ax)
+
+        for row in range(3):
+
+            for col in range(6):
+
+                x0, x1 = x_bins[col], x_bins[col + 1]
+
+                y0, y1 = y_bins[row], y_bins[row + 1]
+
+                val = int(counts[row, col])
+
+                if val == 0:
+
+                    continue
+
+                ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0,
+                                       facecolor=cmap_h(norm_h(val)), edgecolor=(1, 1, 1, 0.12),
+                                       lw=0.6, alpha=0.92, zorder=2))
+
+                vmax_local = max(1, int(counts.max()))
+
+                ax.text((x0 + x1) / 2, (y0 + y1) / 2, str(val),
+                        ha='center', va='center', zorder=4, fontsize=11,
+                        color='#ffffff' if val >= max(2, int(vmax_local * 0.35)) else '#1d1d1d',
+                        fontweight='600')
+
+        ax.set_title(subtitle, fontsize=15, color='#ffffff', pad=8, fontweight='700')
+
+        ax.axhline(y=LANE_LEFT_MIN, color='#ffffff', lw=0.5, alpha=0.12, linestyle='--', zorder=3)
+
+        ax.axhline(y=LANE_RIGHT_MAX, color='#ffffff', lw=0.5, alpha=0.12, linestyle='--', zorder=3)
+
+    fig.suptitle(title, fontsize=18, color='#ffffff', y=0.995, fontweight='700')
+
+    fig.tight_layout(rect=[0, 0, 1, 0.965])
+
+    fig.canvas.draw()
+
+    buf = BytesIO()
+
+    fig.savefig(buf, format='png', dpi=FIG_DPI, facecolor=fig.get_facecolor(), bbox_inches='tight')
+
+    buf.seek(0)
+
+    return Image.open(buf), axes, fig
+
+
+
+def _top_zone_transitions(df_s, top_k=14):
+
+    x_bins, y_bins = _zone_bins()
+
+    if df_s.empty:
+
+        return [], x_bins, y_bins
+
+    sx = np.clip(np.searchsorted(x_bins, df_s['x_start'].to_numpy(), side='right') - 1, 0, 5)
+
+    sy = np.clip(np.searchsorted(y_bins, df_s['y_start'].to_numpy(), side='right') - 1, 0, 2)
+
+    ex = np.clip(np.searchsorted(x_bins, df_s['x_end'].to_numpy(), side='right') - 1, 0, 5)
+
+    ey = np.clip(np.searchsorted(y_bins, df_s['y_end'].to_numpy(), side='right') - 1, 0, 2)
+
+    transitions = defaultdict(int)
+
+    for a, b, c, d in zip(sx, sy, ex, ey):
+
+        if int(a) == int(c) and int(b) == int(d):
+            continue
+        transitions[(int(a), int(b), int(c), int(d))] += 1
+
+    return sorted(transitions.items(), key=lambda kv: kv[1], reverse=True)[:top_k], x_bins, y_bins
+
+
+
+def draw_zone_connections_map(df, title='Zone Connections - Origin to Destination'):
+
+    df_s = df[df['is_won']].copy()
+
+    top_links, x_bins, y_bins = _top_zone_transitions(df_s, top_k=14)
+
+    pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.92)
 
     fig, ax = pitch.draw(figsize=(FIG_W, FIG_H))
 
@@ -841,39 +1201,83 @@ def draw_corridor_heatmap(df, title='Zone Heatmap - Completed Actions'):
 
     fig.set_dpi(FIG_DPI)
 
+    for row in range(3):
 
+        for col in range(6):
 
-    cmap_h = LinearSegmentedColormap.from_list('wr', ['#ffffff','#ffecec','#ffbfbf','#ff8080','#ff3b3b','#ff0000'])
+            x0, x1 = x_bins[col], x_bins[col + 1]
 
-    norm_h = Normalize(vmin=0, vmax=vmax)
+            y0, y1 = y_bins[row], y_bins[row + 1]
 
-    thr = max(1, vmax * 0.35)
+            ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0,
 
+                                   facecolor=(0.32, 0.46, 0.68, 0.04), edgecolor=(1, 1, 1, 0.07),
 
+                                   lw=0.5, zorder=1))
 
-    for cname, (y0, y1) in corridors.items():
+    if top_links:
 
-        for i, val in enumerate(counts[cname]):
+        max_link = max(v for _, v in top_links)
 
-            x0, x1 = x_bins[i], x_bins[i+1]
+        x_cent = (x_bins[:-1] + x_bins[1:]) / 2.0
 
-            ax.add_patch(Rectangle((x0, y0), x1-x0, y1-y0, facecolor=cmap_h(norm_h(val)), edgecolor=(1,1,1,0.12), lw=0.6, alpha=0.95, zorder=2))
+        y_cent = (y_bins[:-1] + y_bins[1:]) / 2.0
 
-            ax.text((x0+x1)/2, (y0+y1)/2, str(val), ha='center', va='center', zorder=4, fontsize=11, color='#000000' if val <= thr else '#ffffff', fontweight='700' if val >= vmax*0.5 else '600')
+        mid_label_offsets = defaultdict(int)
 
+        for (ix0, iy0, ix1, iy1), cnt in top_links:
 
+                x0, y0 = float(x_cent[ix0]), float(y_cent[iy0])
 
-    ax.set_title(title, fontsize=12, color='#ffffff', pad=8)
+                x1, y1 = float(x_cent[ix1]), float(y_cent[iy1])
 
-    ax.axhline(y=LANE_LEFT_MIN, color='#ffffff', lw=0.5, alpha=0.15, linestyle='--', zorder=3)
+                rel = cnt / max_link
 
-    ax.axhline(y=LANE_RIGHT_MAX, color='#ffffff', lw=0.5, alpha=0.15, linestyle='--', zorder=3)
+                color = plt.cm.Blues(0.35 + 0.60 * rel)
 
-    fig.patches.append(FancyArrowPatch((0.44, 0.04), (0.54, 0.04), transform=fig.transFigure, arrowstyle='-|>', mutation_scale=13, linewidth=1.8, color='#cccccc'))
+                lw = 0.8 + 3.8 * rel
 
-    fig.text(0.49, 0.015, 'Attack Direction', ha='center', va='center', fontsize=8, color='#cccccc')
+                alpha = 0.22 + 0.56 * rel
 
+                if ix0 == ix1 and iy0 == iy1:
 
+                    ax.scatter([x0], [y0], s=34 + 50 * rel, c=[color], marker='o',
+
+                               edgecolors='white', linewidths=0.45, alpha=alpha, zorder=5)
+
+                    ax.text(x0 + 1.4, y0 + 1.2, f'{cnt}', color='#e5efff', fontsize=8,
+                            ha='left', va='bottom', zorder=7,
+                            bbox=dict(boxstyle='round,pad=0.15', fc=(0.06, 0.09, 0.14, 0.75), ec='none'))
+
+                    continue
+
+                rad = float(np.clip(0.08 * np.sign((ix1 - ix0) + 0.3 * (iy1 - iy0)), -0.25, 0.25))
+
+                arrow = FancyArrowPatch((x0, y0), (x1, y1),
+
+                                        connectionstyle=f'arc3,rad={rad}',
+
+                                        arrowstyle='-|>', mutation_scale=8 + 8 * rel,
+
+                                        lw=lw, color=color, alpha=alpha, zorder=4)
+
+                ax.add_patch(arrow)
+
+                mx = (x0 + x1) / 2.0
+
+                my = (y0 + y1) / 2.0
+
+                key = (round(mx, 1), round(my, 1))
+
+                bump = mid_label_offsets[key]
+
+                mid_label_offsets[key] += 1
+
+                ax.text(mx, my + 0.9 * bump, f'{cnt}', color='#e5efff', fontsize=8,
+                    ha='center', va='center', zorder=7,
+                    bbox=dict(boxstyle='round,pad=0.15', fc=(0.06, 0.09, 0.14, 0.75), ec='none'))
+
+    ax.set_title(title, fontsize=11, color='#ffffff', pad=7)
 
     fig.tight_layout()
 
@@ -881,11 +1285,105 @@ def draw_corridor_heatmap(df, title='Zone Heatmap - Completed Actions'):
 
     buf = BytesIO()
 
-    fig.savefig(buf, format='png', dpi=FIG_DPI, facecolor=fig.get_facecolor())
+    fig.savefig(buf, format='png', dpi=FIG_DPI, facecolor=fig.get_facecolor(), bbox_inches='tight')
 
     buf.seek(0)
 
     return Image.open(buf), ax, fig
+
+
+
+def draw_top_connection_minimaps(df, top_k=3, title='Top Zone Connections (Mini Maps)'):
+
+    df_s = df[df['is_won']].copy()
+
+    links, x_bins, y_bins = _top_zone_transitions(df_s, top_k=top_k)
+
+    fig, axes = plt.subplots(1, top_k, figsize=(FIG_W * 1.6, FIG_H * 0.80), dpi=FIG_DPI)
+
+    if top_k == 1:
+
+        axes = [axes]
+
+    fig.set_facecolor('#1a1a2e')
+
+    pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.90)
+
+    x_cent = (x_bins[:-1] + x_bins[1:]) / 2.0
+
+    y_cent = (y_bins[:-1] + y_bins[1:]) / 2.0
+
+    max_cnt = max([v for _, v in links], default=1)
+
+    for idx, ax in enumerate(axes):
+
+        pitch.draw(ax=ax)
+
+        if idx >= len(links):
+
+            ax.set_title('No link', fontsize=9, color='#dbeafe', pad=4)
+
+            continue
+
+        (ix0, iy0, ix1, iy1), cnt = links[idx]
+
+        x0, y0 = float(x_cent[ix0]), float(y_cent[iy0])
+
+        x1, y1 = float(x_cent[ix1]), float(y_cent[iy1])
+
+        rel = cnt / max_cnt
+
+        color = plt.cm.Blues(0.40 + 0.55 * rel)
+
+        lw = 1.2 + 4.2 * rel
+
+        alpha = 0.30 + 0.60 * rel
+
+        ax.add_patch(Rectangle((x_bins[ix0], y_bins[iy0]), x_bins[ix0 + 1] - x_bins[ix0], y_bins[iy0 + 1] - y_bins[iy0],
+
+                               facecolor=(0.20, 0.45, 0.95, 0.16), edgecolor=(1, 1, 1, 0.15), lw=0.6, zorder=2))
+
+        ax.add_patch(Rectangle((x_bins[ix1], y_bins[iy1]), x_bins[ix1 + 1] - x_bins[ix1], y_bins[iy1 + 1] - y_bins[iy1],
+
+                               facecolor=(0.02, 0.70, 0.55, 0.16), edgecolor=(1, 1, 1, 0.15), lw=0.6, zorder=2))
+
+        if ix0 == ix1 and iy0 == iy1:
+
+            ax.scatter([x0], [y0], s=40 + 80 * rel, c=[color], marker='o', edgecolors='white', linewidths=0.5, alpha=alpha, zorder=5)
+
+        else:
+
+            rad = float(np.clip(0.10 * np.sign((ix1 - ix0) + 0.4 * (iy1 - iy0)), -0.30, 0.30))
+
+            arrow = FancyArrowPatch((x0, y0), (x1, y1), connectionstyle=f'arc3,rad={rad}',
+
+                                    arrowstyle='-|>', mutation_scale=10 + 9 * rel,
+
+                                    lw=lw, color=color, alpha=alpha, zorder=4)
+
+            ax.add_patch(arrow)
+
+        ax.text((x0 + x1) / 2.0, (y0 + y1) / 2.0, f'{cnt}', color='#e5efff', fontsize=8,
+
+                ha='center', va='center', zorder=7,
+
+                bbox=dict(boxstyle='round,pad=0.16', fc=(0.06, 0.09, 0.14, 0.80), ec='none'))
+
+        ax.set_title(f'#{idx + 1}  {cnt}x', fontsize=9, color='#dbeafe', pad=4)
+
+    fig.suptitle(title, fontsize=11, color='#ffffff', y=0.99)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+    fig.canvas.draw()
+
+    buf = BytesIO()
+
+    fig.savefig(buf, format='png', dpi=FIG_DPI, facecolor=fig.get_facecolor(), bbox_inches='tight')
+
+    buf.seek(0)
+
+    return Image.open(buf), axes, fig
 
 
 
@@ -1029,7 +1527,6 @@ def plot_metric_line(metrics_df, key, label):
         st.info('No data available for this chart.')
 
         return
-
 
     y = metrics_df[key].astype(float).to_numpy()
 
@@ -1180,7 +1677,7 @@ tab_maps, tab_stats = st.tabs(['Maps', 'Stats'])
 
 with tab_maps:
 
-    col_filters, col_field, col_events = st.columns([0.95, 2.15, 1.2], gap='large')
+    col_filters, col_main = st.columns([0.95, 3.35], gap='large')
 
 
 
@@ -1258,25 +1755,12 @@ with tab_maps:
 
 
 
-    with col_field:
 
-        DISPLAY_WIDTH = 760
+    with col_main:
 
-
-
-        if st.button('Clear zone filter', key='clear_heat_filter'):
-
-            st.session_state['heat_selection'] = None
-
-
+        DISPLAY_WIDTH = 1120
 
         df_to_draw = df_base
-
-        if st.session_state['heat_selection'] is not None:
-
-            sel = st.session_state['heat_selection']
-
-            df_to_draw = df_base[(df_base.x_end >= sel['x0']) & (df_base.x_end < sel['x1']) & (df_base.y_end >= sel['y0']) & (df_base.y_end < sel['y1'])].reset_index(drop=True)
 
 
 
@@ -1314,79 +1798,7 @@ with tab_maps:
 
 
 
-        st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Zone Heatmap</h4>', unsafe_allow_html=True)
-
-        heat_img, hax, hfig = draw_corridor_heatmap(df_base)
-
-        heat_click = streamlit_image_coordinates(heat_img, width=DISPLAY_WIDTH)
-
-
-
-        if heat_click is not None:
-
-            rw, rh = heat_img.size
-
-            px = heat_click['x'] * (rw / heat_click['width'])
-
-            py = heat_click['y'] * (rh / heat_click['height'])
-
-            fx, fy = hax.transData.inverted().transform((px, rh - py))
-
-            xb = np.linspace(0, FIELD_X, 7)
-
-            ix = max(0, min(5, np.searchsorted(xb, fx, side='right') - 1))
-
-            x0, x1 = xb[ix], xb[ix+1]
-
-            if fy >= LANE_LEFT_MIN:
-
-                cn, y0, y1 = 'left', LANE_LEFT_MIN, FIELD_Y
-
-            elif fy < LANE_RIGHT_MAX:
-
-                cn, y0, y1 = 'right', 0.0, LANE_RIGHT_MAX
-
-            else:
-
-                cn, y0, y1 = 'center', LANE_RIGHT_MAX, LANE_LEFT_MIN
-
-            st.session_state['heat_selection'] = {'ix': int(ix), 'corridor': cn, 'x0': float(x0), 'x1': float(x1), 'y0': float(y0), 'y1': float(y1)}
-
-
-
-        plt.close(hfig)
-
-
-
-        if st.session_state['heat_selection'] is not None:
-
-            sel = st.session_state['heat_selection']
-
-            smsk = ((df_base.x_end >= sel['x0']) & (df_base.x_end < sel['x1']) & (df_base.y_end >= sel['y0']) & (df_base.y_end < sel['y1']))
-
-            st.markdown(f"<div style='color:#ffffff;margin-top:4px;'><strong>Filter:</strong> corridor <code>{sel['corridor']}</code>, X column #{sel['ix']+1} - {int(smsk.sum())} actions</div>", unsafe_allow_html=True)
-
-
-
-        with st.expander('Full Actions Data Table'):
-
-            dcols = ['number','type','outcome','direction','x_start','y_start','x_end','y_end','action_distance','xt_start','xt_end','delta_xt','dist_bonus','delta_xt_adj']
-
-            st.dataframe(df_to_draw[dcols].style.format({
-
-                'x_start':'{:.2f}','y_start':'{:.2f}','x_end':'{:.2f}','y_end':'{:.2f}',
-
-                'action_distance':'{:.1f}','xt_start':'{:.4f}','xt_end':'{:.4f}',
-
-                'delta_xt':'{:.4f}','dist_bonus':'{:.3f}','delta_xt_adj':'{:.4f}'
-
-            }), use_container_width=True, height=380)
-
-
-
-    with col_events:
-
-        st.subheader('Event Panel')
+        st.markdown('<h4 style="color:#ffffff;margin:6px 0 4px 0;">Event Panel</h4>', unsafe_allow_html=True)
 
         selected_action = st.session_state.get('selected_action', None)
 
@@ -1410,17 +1822,16 @@ with tab_maps:
 
             )
 
-            st.write(f'**Start:** ({selected_action.x_start:.2f}, {selected_action.y_start:.2f})')
+            c1, c2 = st.columns(2)
 
-            st.write(f'**End:** ({selected_action.x_end:.2f}, {selected_action.y_end:.2f})')
-
-            st.write(f'**Direction:** {selected_action["direction"].capitalize()}')
-
-            st.write(f'**Successful:** {"Yes" if selected_action["is_won"] else "No"}')
-
-            st.metric('Distance', f'{selected_action["action_distance"]:.1f}m')
-
-            st.metric('ΔxT', f'{selected_action["delta_xt_adj"]:.4f}')
+            with c1:
+                st.write(f'**Start:** ({selected_action.x_start:.2f}, {selected_action.y_start:.2f})')
+                st.write(f'**End:** ({selected_action.x_end:.2f}, {selected_action.y_end:.2f})')
+                st.write(f'**Direction:** {selected_action["direction"].capitalize()}')
+                st.write(f'**Successful:** {"Yes" if selected_action["is_won"] else "No"}')
+            with c2:
+                st.metric('Distance', f'{selected_action["action_distance"]:.1f}m')
+                st.metric('ΔxT', f'{selected_action["delta_xt_adj"]:.4f}')
 
             if has_video_value(selected_action['video']):
 
@@ -1435,6 +1846,24 @@ with tab_maps:
             else:
 
                 st.warning('No video attached to this event.')
+
+
+
+        st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Zone Heatmaps</h4>', unsafe_allow_html=True)
+
+        hm_panel_img, _, hm_panel_fig = draw_zone_heatmaps_panel(df_base)
+
+        st.image(hm_panel_img, use_column_width=True)
+
+        plt.close(hm_panel_fig)
+
+        st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Mini Maps - Top Zone Connections</h4>', unsafe_allow_html=True)
+
+        mini_img, _, mini_fig = draw_top_connection_minimaps(df_base, top_k=3)
+
+        st.image(mini_img, use_column_width=True)
+
+        plt.close(mini_fig)
 
 
 
@@ -1528,7 +1957,7 @@ with tab_stats:
 
             f1, f2 = st.columns(2)
 
-            with f1: small_metric('Σ xT Start (Failed)', f"{stats['failed_xt_sum']:.2f}")
+            with f1: small_metric('Σ xT End (Failed)', f"{stats['failed_xt_sum']:.2f}")
 
             with f2: small_metric('Avg. xT (Failed)', f"{stats['failed_xt_mean']:.2f}")
 
@@ -1550,7 +1979,7 @@ with tab_stats:
 
         'Avg. End xT': ('xt_end_mean', 'Avg. End xT'),
 
-        'Σ xT Start (Failed)': ('failed_xt_sum', 'Σ xT Start (Failed)'),
+        'Σ xT End (Failed)': ('failed_xt_sum', 'Σ xT End (Failed)'),
 
         'Avg. xT (Failed)': ('failed_xt_mean', 'Avg. xT (Failed)'),
 
