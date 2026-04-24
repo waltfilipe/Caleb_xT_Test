@@ -1427,6 +1427,7 @@ def render_top10_clickable(df, title='Top 10 - ΔxT (Adj.) and Video', key_prefi
     data_event = st.dataframe(
         show_df,
         use_container_width=True,
+        height=390,
         hide_index=True,
         selection_mode='single-row',
         on_select='rerun',
@@ -1790,41 +1791,53 @@ with tab_maps:
 
     with col_main:
 
-        DISPLAY_WIDTH = 860
+        DISPLAY_WIDTH = 620
 
         df_to_draw = df_base
 
-        st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Action Map</h4>', unsafe_allow_html=True)
+        map_col, top10_col = st.columns([1.75, 1.0], gap='medium')
 
-        img_obj, ax, fig = draw_action_map(df_to_draw, title=f'Action Map - {selected_match}', top_n_highlight=int(top_n), offset_step=1.5)
+        with map_col:
 
-        click = streamlit_image_coordinates(img_obj, width=DISPLAY_WIDTH)
+            st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Action Map</h4>', unsafe_allow_html=True)
 
+            img_obj, ax, fig = draw_action_map(df_to_draw, title=f'Action Map - {selected_match}', top_n_highlight=int(top_n), offset_step=1.5)
 
-
-        if click is not None:
-
-            rw, rh = img_obj.size
-
-            px = click['x'] * (rw / click['width'])
-
-            py = click['y'] * (rh / click['height'])
-
-            fx, fy = ax.transData.inverted().transform((px, rh - py))
-
-            df_sel = df_to_draw.copy()
-
-            df_sel['dist'] = np.sqrt((df_sel.x_start - fx)**2 + (df_sel.y_start - fy)**2)
-
-            cands = df_sel[df_sel['dist'] < 5.0]
-
-            if not cands.empty:
-
-                st.session_state['selected_action'] = cands.sort_values('dist').iloc[0]
+            click = streamlit_image_coordinates(img_obj, width=DISPLAY_WIDTH)
 
 
 
-        plt.close(fig)
+            if click is not None:
+
+                rw, rh = img_obj.size
+
+                px = click['x'] * (rw / click['width'])
+
+                py = click['y'] * (rh / click['height'])
+
+                fx, fy = ax.transData.inverted().transform((px, rh - py))
+
+                df_sel = df_to_draw.copy()
+
+                df_sel['dist'] = np.sqrt((df_sel.x_start - fx)**2 + (df_sel.y_start - fy)**2)
+
+                cands = df_sel[df_sel['dist'] < 5.0]
+
+                if not cands.empty:
+
+                    st.session_state['selected_action'] = cands.sort_values('dist').iloc[0]
+
+
+
+            plt.close(fig)
+
+        with top10_col:
+
+            st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Top 10 ΔxT</h4>', unsafe_allow_html=True)
+
+            top10_source = recompute_bonus(full_data[selected_match].copy())
+
+            render_top10_clickable(top10_source, title='Top 10 ΔxT (Clique para video)', key_prefix='map')
 
 
 
@@ -1876,16 +1889,6 @@ with tab_maps:
             else:
 
                 st.warning('No video attached to this event.')
-
-
-
-        st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Top 10 ΔxT</h4>', unsafe_allow_html=True)
-
-        top10_source = recompute_bonus(full_data[selected_match].copy())
-
-        render_top10_clickable(top10_source, title='Top 10 ΔxT (Clique para video)', key_prefix='map')
-
-
 
         st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Zone Heatmaps</h4>', unsafe_allow_html=True)
 
