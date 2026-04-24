@@ -1005,7 +1005,7 @@ with tab_maps:
                     st.write(f'**Successful:** {"Yes" if selected_action["is_won"] else "No"}')
                 with c2:
                     st.metric('Distance', f'{float(selected_action["action_distance"]):.1f} m')
-                    st.metric('ΔxT', f'{float(selected_action["delta_xt_adj"]):.4f}')
+                    st.metric('ΔxT', f'{float(selected_action["delta_xt_adj"]):.2f}')
 
         # ── Zone Heatmaps & Mini Maps (full-width, below columns) ────────────
         st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Zone Heatmaps</h4>', unsafe_allow_html=True)
@@ -1043,13 +1043,13 @@ with tab_stats:
 
         st.markdown('<div style="margin-top:16px;margin-bottom:8px;" class="stats-section-title" style="font-size:13px;">Advanced</div>', unsafe_allow_html=True)
         av1, av2, av3 = st.columns(3)
-        with av1: small_metric('Σ ΔxT', f"{stats['sum_delta_xt']:.3f}")
+        with av1: small_metric('Σ ΔxT', f"{stats['sum_delta_xt']:.2f}")
         with av2: small_metric('% Positive', f"{stats['pos_pct']:.1f}%")
-        with av3: small_metric('Avg. Pos.', f"{stats['pos_mean']:.3f}")
+        with av3: small_metric('Avg. Pos.', f"{stats['pos_mean']:.2f}")
         av4, av5, av6 = st.columns(3)
-        with av4: small_metric('Σ Top 10', f"{stats['top10_sum']:.3f}")
-        with av5: small_metric('Avg. Top 10', f"{stats['top10_mean']:.3f}")
-        with av6: small_metric('Avg. End xT', f"{stats['xt_end_mean']:.3f}")
+        with av4: small_metric('Σ Top 10', f"{stats['top10_sum']:.2f}")
+        with av5: small_metric('Avg. Top 10', f"{stats['top10_mean']:.2f}")
+        with av6: small_metric('Avg. End xT', f"{stats['xt_end_mean']:.2f}")
 
     # ── Right: Performance KPI blocks ─────────────────────────────────────────
     with col_right:
@@ -1080,7 +1080,7 @@ with tab_stats:
                 f"{stats['pos_pct']:.1f}%", 'Ações com ΔxT positivo'), unsafe_allow_html=True)
         with r1c:
             st.markdown(_perf_block('#f59e0b', '#fcd34d', 'Σ ΔxT',
-                f"{stats['sum_delta_xt']:.3f}", 'xT total gerado'), unsafe_allow_html=True)
+                f"{stats['sum_delta_xt']:.2f}", 'xT total gerado'), unsafe_allow_html=True)
 
         st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
 
@@ -1088,10 +1088,10 @@ with tab_stats:
         r2a, r2b = st.columns(2)
         with r2a:
             st.markdown(_perf_block('#8b5cf6', '#c4b5fd', 'Σ End xT',
-                f"{stats['xt_end_sum']:.3f}", 'xT acumulado no destino'), unsafe_allow_html=True)
+                f"{stats['xt_end_sum']:.2f}", 'xT acumulado no destino'), unsafe_allow_html=True)
         with r2b:
             st.markdown(_perf_block('#ef4444', '#fca5a5', 'Σ xT Failed',
-                f"{stats['failed_xt_sum']:.3f}", 'xT cedido em ações perdidas'), unsafe_allow_html=True)
+                f"{stats['failed_xt_sum']:.2f}", 'xT cedido em ações perdidas'), unsafe_allow_html=True)
 
     # ── Trend chart (full width) ───────────────────────────────────────────────
     st.markdown('<h4 style="color:#ffffff;margin:24px 0 6px 0;">Match Trend Line Chart</h4>', unsafe_allow_html=True)
