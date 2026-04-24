@@ -71,6 +71,20 @@ st.markdown('''
 
 .stSubheader{color:#ffffff!important;}
 
+.performance-card{
+    background:linear-gradient(150deg,rgba(14,165,233,.18) 0%,rgba(56,189,248,.10) 50%,rgba(12,74,110,.20) 100%);
+    border:1px solid rgba(125,211,252,.28);
+    border-radius:14px;
+    padding:16px 14px;
+    box-shadow:0 6px 24px rgba(2,6,23,.35);
+}
+
+.performance-title{font-size:18px;font-weight:700;color:#e0f2fe;margin:0 0 6px 0;}
+
+.performance-sub{font-size:12px;color:#bae6fd;margin-bottom:12px;opacity:.95;}
+
+.performance-chip{display:inline-block;padding:4px 8px;border-radius:999px;background:rgba(14,165,233,.22);border:1px solid rgba(125,211,252,.35);color:#e0f2fe;font-size:11px;margin:0 6px 6px 0;}
+
 </style>
 
 ''', unsafe_allow_html=True)
@@ -380,20 +394,9 @@ matches_data = {
         ('ACTION WON',63.16,46.32,77.12,44.99,None),('ACTION WON',63.49,71.09,63.49,41.00,None),
         ('ACTION WON',62.16,69.92,65.98,41.99,None),('ACTION WON',46.87,55.46,102.06,70.25,None),
 
-        ('ACTION WON',8.14,30.86,12.46,31.02,None),('ACTION WON',4.64,60.11,16.11,55.79,None),
-        ('ACTION WON',10.79,53.13,24.43,49.48,None),('ACTION WON',23.76,33.18,42.71,36.18,None),
-        ('ACTION WON',32.57,21.55,42.55,10.58,None),('ACTION WON',35.23,30.69,43.38,30.19,None),
-        ('ACTION WON',39.05,24.71,49.36,17.56,None),('ACTION WON',42.21,32.02,56.18,9.41,None),
-        ('ACTION WON',30.58,44.32,39.72,59.62,None),('ACTION WON',31.41,57.12,37.56,73.41,None),
-        ('ACTION WON',38.72,66.60,20.10,54.79,None),('ACTION WON',51.85,60.95,27.09,48.31,None),
-        ('ACTION WON',44.87,73.75,51.85,17.39,None),('ACTION WON',47.37,51.47,57.34,67.59,None),
-        ('ACTION WON',51.85,53.80,58.67,66.26,None),('ACTION WON',50.03,56.79,68.31,56.46,None),
-        ('ACTION WON',71.14,56.29,62.66,37.51,None),('ACTION WON',61.66,40.00,73.13,55.96,None),
-
         ('ACTION LOST',29.08,10.91,41.22,14.07,None),('ACTION LOST',28.08,42.66,37.56,30.19,None),
         ('ACTION LOST',28.75,64.44,38.39,64.94,None),('ACTION LOST',63.99,50.81,78.78,50.14,None),
         ('ACTION LOST',79.12,64.44,91.25,61.11,None),('ACTION LOST',65.49,63.61,118.35,79.40,None),
-        ('ACTION LOST',41.05,33.18,80.28,31.69,None),('ACTION LOST',39.05,50.81,70.31,45.15,None),
 
     ],
 
@@ -1398,7 +1401,7 @@ def draw_top_connection_minimaps(df, top_k=3, title='Top Zone Connections (Mini 
 
 
 
-def render_top10(df, title='Top 10 - ΔxT (Adj.) and xT End'):
+def render_top10_clickable(df, title='Top 10 - ΔxT (Adj.) and Video', key_prefix='map'):
 
     st.markdown(f'<h4 style="color:#ffffff;margin:0 0 6px 0;">{title}</h4>', unsafe_allow_html=True)
 
@@ -1410,53 +1413,57 @@ def render_top10(df, title='Top 10 - ΔxT (Adj.) and xT End'):
 
         return
 
-
-
     top = df_s.sort_values('delta_xt_adj', ascending=False).head(10).reset_index(drop=True)
+    top['rank'] = np.arange(1, len(top) + 1)
 
-    rows_html = ''
+    show_df = pd.DataFrame({
+        'Rank': top['rank'].map(lambda x: f'#{int(x)}'),
+        'Action #': top['number'].astype(int),
+        'ΔxT (Adj.)': top['delta_xt_adj'].map(lambda x: f'{x:.4f}'),
+        'xT End': top['xt_end'].map(lambda x: f'{x:.4f}'),
+    })
 
-    for i, row in top.iterrows():
+    selected_row = st.session_state.get(f'{key_prefix}_top10_row', None)
+    data_event = st.dataframe(
+        show_df,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode='single-row',
+        on_select='rerun',
+        key=f'{key_prefix}_top10_table',
+    )
 
-        rank = i + 1
+    if hasattr(data_event, 'selection') and data_event.selection.rows:
+        selected_row = int(data_event.selection.rows[0])
+        st.session_state[f'{key_prefix}_top10_row'] = selected_row
 
-        color = matplotlib.colors.to_hex(CMAP_ACTION(NORM_ACTION(float(row['xt_end']))))
+    selected = None
+    if selected_row is not None and 0 <= int(selected_row) < len(top):
+        selected = top.iloc[int(selected_row)]
 
-        dot = (f'<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:{color};vertical-align:middle;margin-right:5px;border:1px solid rgba(255,255,255,.4);"></span>')
+    if selected is None:
+        st.info('Clique em uma linha da tabela para abrir o video do lance.')
+        return
 
-        rows_html += (
+    st.markdown(
+        (
+            '<div style="margin:8px 0 6px 0;padding:8px 10px;border-radius:10px;'
+            'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);">'
+            f'<span style="color:#93c5fd;font-size:11px;">Selecionado</span><br>'
+            f'<span style="color:#fff;font-weight:700;">Action #{int(selected["number"])} - rank #{int(selected["rank"])} </span>'
+            f'<span style="color:#e2e8f0;">| ΔxT {float(selected["delta_xt_adj"]):.4f}</span>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
 
-            f"<tr style='border-bottom:1px solid rgba(255,255,255,.05);'>"
-
-            f"<td style='color:#888;text-align:center;padding:4px 8px;font-size:11px;'>#{rank}</td>"
-
-            f"<td style='color:#ccc;text-align:center;padding:4px 8px;font-size:11px;'>{int(row['number'])}</td>"
-
-            f"<td style='color:#fff;text-align:right;padding:4px 8px;font-weight:700;font-size:12px;'>{row['delta_xt_adj']:.4f}</td>"
-
-            f"<td style='text-align:center;padding:4px 8px;'>{dot}<span style='color:#fff;font-size:12px;'>{row['xt_end']:.4f}</span></td>"
-
-            '</tr>'
-
-        )
-
-
-
-        table_html = textwrap.dedent(f"""
-        <table style='width:100%;border-collapse:collapse;background:rgba(255,255,255,.03);border-radius:8px;overflow:hidden;margin-bottom:6px;'>
-            <thead>
-                <tr style='background:rgba(255,255,255,.06);'>
-                    <th style='color:#aaa;padding:5px 8px;text-align:center;font-weight:500;font-size:11px;'>Rank</th>
-                    <th style='color:#aaa;padding:5px 8px;text-align:center;font-weight:500;font-size:11px;'>#</th>
-                    <th style='color:#aaa;padding:5px 8px;text-align:right;font-weight:500;font-size:11px;'>ΔxT (Adj.)</th>
-                    <th style='color:#aaa;padding:5px 8px;text-align:center;font-weight:500;font-size:11px;'>xT End</th>
-                </tr>
-            </thead>
-            <tbody>{rows_html}</tbody>
-        </table>
-        """)
-
-    st.markdown(table_html, unsafe_allow_html=True)
+    if has_video_value(selected['video']):
+        try:
+            st.video(selected['video'])
+        except Exception:
+            st.error(f'Video not found: {selected["video"]}')
+    else:
+        st.warning('Este evento ainda nao tem video anexado.')
 
 
 
@@ -1670,9 +1677,13 @@ for key, default in [
 
     ('last_match', 'All Matches'),
 
-    ('last_filter', 'All Actions'),
+    ('last_filter', 'Top N Actions (ΔxT)'),
+
+    ('top_n_value', 10),
 
     ('selected_action', None),
+
+    ('map_top10_row', None),
 
 ]:
 
@@ -1706,7 +1717,7 @@ with tab_maps:
 
         st.markdown('### Action Filter')
 
-        action_filter = st.radio('Filter actions to display', [
+        action_options = [
 
             'All Actions',
 
@@ -1718,9 +1729,19 @@ with tab_maps:
 
             'Positive xT only',
 
-        ], index=0)
+        ]
 
-        top_n = st.number_input('Top N', min_value=1, max_value=100, value=20, step=1)
+        default_filter = st.session_state.get('last_filter', 'Top N Actions (ΔxT)')
+
+        if default_filter not in action_options:
+
+            default_filter = 'Top N Actions (ΔxT)'
+
+        action_filter = st.radio('Filter actions to display', action_options, index=action_options.index(default_filter))
+
+        top_n = st.number_input('Top N', min_value=1, max_value=100, value=int(st.session_state.get('top_n_value', 10)), step=1)
+
+        st.session_state['top_n_value'] = int(top_n)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1773,90 +1794,47 @@ with tab_maps:
 
         df_to_draw = df_base
 
+        map_col, top10_col = st.columns([2.15, 1.05], gap='medium')
 
+        with map_col:
 
-        st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Action Map</h4>', unsafe_allow_html=True)
+            st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Action Map</h4>', unsafe_allow_html=True)
 
-        img_obj, ax, fig = draw_action_map(df_to_draw, title=f'Action Map - {selected_match}', top_n_highlight=int(top_n), offset_step=1.5)
+            img_obj, ax, fig = draw_action_map(df_to_draw, title=f'Action Map - {selected_match}', top_n_highlight=int(top_n), offset_step=1.5)
 
-        click = streamlit_image_coordinates(img_obj, width=DISPLAY_WIDTH)
-
-
-
-        if click is not None:
-
-            rw, rh = img_obj.size
-
-            px = click['x'] * (rw / click['width'])
-
-            py = click['y'] * (rh / click['height'])
-
-            fx, fy = ax.transData.inverted().transform((px, rh - py))
-
-            df_sel = df_to_draw.copy()
-
-            df_sel['dist'] = np.sqrt((df_sel.x_start - fx)**2 + (df_sel.y_start - fy)**2)
-
-            cands = df_sel[df_sel['dist'] < 5.0]
-
-            if not cands.empty:
-
-                st.session_state['selected_action'] = cands.sort_values('dist').iloc[0]
+            click = streamlit_image_coordinates(img_obj, width=DISPLAY_WIDTH)
 
 
 
-        plt.close(fig)
+            if click is not None:
+
+                rw, rh = img_obj.size
+
+                px = click['x'] * (rw / click['width'])
+
+                py = click['y'] * (rh / click['height'])
+
+                fx, fy = ax.transData.inverted().transform((px, rh - py))
+
+                df_sel = df_to_draw.copy()
+
+                df_sel['dist'] = np.sqrt((df_sel.x_start - fx)**2 + (df_sel.y_start - fy)**2)
+
+                cands = df_sel[df_sel['dist'] < 5.0]
+
+                if not cands.empty:
+
+                    st.session_state['selected_action'] = cands.sort_values('dist').iloc[0]
 
 
 
-        st.markdown('<h4 style="color:#ffffff;margin:6px 0 4px 0;">Event Panel</h4>', unsafe_allow_html=True)
+            plt.close(fig)
 
-        selected_action = st.session_state.get('selected_action', None)
+        with top10_col:
 
-        if selected_action is None:
+            top10_source = recompute_bonus(full_data[selected_match].copy())
 
-            st.info('Click the origin ring on the map to open the event.')
-
-        else:
-
-            act_color = matplotlib.colors.to_hex(CMAP_ACTION(NORM_ACTION(float(selected_action['xt_end']))))
-
-            st.markdown(
-
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
-
-                f'<span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:{act_color};border:2px solid #fff;"></span>'
-
-                f'<strong style="color:#fff;">Action #{int(selected_action["number"])} - {selected_action["type"]}</strong></div>',
-
-                unsafe_allow_html=True
-
-            )
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.write(f'**Start:** ({selected_action.x_start:.2f}, {selected_action.y_start:.2f})')
-                st.write(f'**End:** ({selected_action.x_end:.2f}, {selected_action.y_end:.2f})')
-                st.write(f'**Direction:** {selected_action["direction"].capitalize()}')
-                st.write(f'**Successful:** {"Yes" if selected_action["is_won"] else "No"}')
-            with c2:
-                st.metric('Distance', f'{selected_action["action_distance"]:.1f}m')
-                st.metric('ΔxT', f'{selected_action["delta_xt_adj"]:.4f}')
-
-            if has_video_value(selected_action['video']):
-
-                try:
-
-                    st.video(selected_action['video'])
-
-                except Exception:
-
-                    st.error(f'Video not found: {selected_action["video"]}')
-
-            else:
-
-                st.warning('No video attached to this event.')
+            render_top10_clickable(top10_source, title='Top 10 ΔxT (Clique para video)', key_prefix='map')
 
 
 
@@ -1892,17 +1870,11 @@ with tab_stats:
 
 
 
-    col_left, col_right = st.columns([1.02, 1.25], gap='large')
+    col_left, col_right = st.columns([1.25, 1.02], gap='large')
 
 
 
     with col_left:
-
-        render_top10(stats_df, title='Top 10 ΔxT (Selected Match)')
-
-
-
-    with col_right:
 
         with st.expander('General Statistics', expanded=True):
 
@@ -1971,6 +1943,33 @@ with tab_stats:
             with f1: small_metric('Σ xT End (Failed)', f"{stats['failed_xt_sum']:.2f}")
 
             with f2: small_metric('Avg. xT (Failed)', f"{stats['failed_xt_mean']:.2f}")
+
+
+
+    with col_right:
+
+        st.markdown(
+            (
+                '<div class="performance-card">'
+                '<div class="performance-title">Performance</div>'
+                '<div class="performance-sub">Sessao reservada para analises de desempenho individual.</div>'
+                '<span class="performance-chip">Em construcao</span>'
+                '<span class="performance-chip">Benchmark</span>'
+                '<span class="performance-chip">Tendencia</span>'
+                '</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+
+        p1, p2 = st.columns(2)
+        with p1:
+            st.metric('Actions', f"{stats['total_actions']}")
+            st.metric('Σ ΔxT', f"{stats['sum_delta_xt']:.2f}")
+        with p2:
+            st.metric('Accuracy', f"{stats['accuracy_pct']:.1f}%")
+            st.metric('Avg. End xT', f"{stats['xt_end_mean']:.2f}")
+
+        st.info('Use esta area para inserir seus proximos KPIs de Performance.')
 
 
 
