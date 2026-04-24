@@ -1023,73 +1023,78 @@ with tab_maps:
 # TAB: STATS
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_stats:
-    st.subheader('Stats (General, Advanced)')
 
     selected_match_stats = st.selectbox('Match for Stats', list(full_data.keys()), index=0, key='stats_match_select')
     stats_df = recompute_bonus(full_data[selected_match_stats].copy())
     stats = compute_stats(stats_df)
 
-    col_left, col_right = st.columns([1.25, 1.02], gap='large')
+    col_left, col_right = st.columns([1.0, 1.55], gap='large')
 
+    # ── Left: General + Advanced (concise) ────────────────────────────────────
     with col_left:
-        with st.expander('General Statistics', expanded=True):
-            st.markdown('<div class="stats-section-title">Overview</div>', unsafe_allow_html=True)
-            r1, r2, r3 = st.columns(3)
-            with r1: small_metric('Total Actions', f"{stats['total_actions']}")
-            with r2: small_metric('Successful', f"{stats['successful_actions']}")
-            with r3: small_metric('Accuracy', f"{stats['accuracy_pct']:.1f}%")
-            st.markdown('<hr style="margin:6px 0 8px 0;">', unsafe_allow_html=True)
-            st.markdown('<div class="stats-section-title">Directions</div>', unsafe_allow_html=True)
-            render_direction_cards(stats)
+        st.markdown('<div class="stats-section-title" style="font-size:13px;margin-bottom:8px;">General</div>', unsafe_allow_html=True)
+        g1, g2, g3 = st.columns(3)
+        with g1: small_metric('Total', f"{stats['total_actions']}")
+        with g2: small_metric('Successful', f"{stats['successful_actions']}")
+        with g3: small_metric('Accuracy', f"{stats['accuracy_pct']:.1f}%")
 
-        with st.expander('Advanced Statistics', expanded=True):
-            st.markdown('<div class="stats-section-title">ΔxT</div>', unsafe_allow_html=True)
-            a1, a2, a3 = st.columns(3)
-            with a1: small_metric('Σ ΔxT', f"{stats['sum_delta_xt']:.2f}")
-            with a2: small_metric('% Positive', f"{stats['pos_pct']:.2f}%")
-            with a3: small_metric('Avg. Positive', f"{stats['pos_mean']:.2f}")
+        st.markdown('<div style="margin-top:12px;margin-bottom:6px;" class="stats-section-title" style="font-size:13px;">Directions</div>', unsafe_allow_html=True)
+        render_direction_cards(stats)
 
-            st.markdown('<hr style="margin:6px 0 8px 0;">', unsafe_allow_html=True)
-            st.markdown('<div class="stats-section-title">Top 10</div>', unsafe_allow_html=True)
-            t1, t2 = st.columns(2)
-            with t1: small_metric('Σ Top10', f"{stats['top10_sum']:.2f}")
-            with t2: small_metric('Avg. Top10', f"{stats['top10_mean']:.2f}")
+        st.markdown('<div style="margin-top:16px;margin-bottom:8px;" class="stats-section-title" style="font-size:13px;">Advanced</div>', unsafe_allow_html=True)
+        av1, av2, av3 = st.columns(3)
+        with av1: small_metric('Σ ΔxT', f"{stats['sum_delta_xt']:.3f}")
+        with av2: small_metric('% Positive', f"{stats['pos_pct']:.1f}%")
+        with av3: small_metric('Avg. Pos.', f"{stats['pos_mean']:.3f}")
+        av4, av5, av6 = st.columns(3)
+        with av4: small_metric('Σ Top 10', f"{stats['top10_sum']:.3f}")
+        with av5: small_metric('Avg. Top 10', f"{stats['top10_mean']:.3f}")
+        with av6: small_metric('Avg. End xT', f"{stats['xt_end_mean']:.3f}")
 
-            st.markdown('<hr style="margin:6px 0 8px 0;">', unsafe_allow_html=True)
-            st.markdown('<div class="stats-section-title">End xT</div>', unsafe_allow_html=True)
-            e1, e2 = st.columns(2)
-            with e1: small_metric('Σ End xT', f"{stats['xt_end_sum']:.2f}")
-            with e2: small_metric('Avg. End xT', f"{stats['xt_end_mean']:.2f}")
-
-            st.markdown('<hr style="margin:6px 0 8px 0;">', unsafe_allow_html=True)
-            st.markdown('<div class="stats-section-title">Failed</div>', unsafe_allow_html=True)
-            f1, f2 = st.columns(2)
-            with f1: small_metric('Σ xT End (Failed)', f"{stats['failed_xt_sum']:.2f}")
-            with f2: small_metric('Avg. xT (Failed)', f"{stats['failed_xt_mean']:.2f}")
-
+    # ── Right: Performance KPI blocks ─────────────────────────────────────────
     with col_right:
         st.markdown(
-            (
-                '<div class="performance-card">'
-                '<div class="performance-title">Performance</div>'
-                '<div class="performance-sub">Sessão reservada para análises de desempenho individual.</div>'
-                '<span class="performance-chip">Em construção</span>'
-                '<span class="performance-chip">Benchmark</span>'
-                '<span class="performance-chip">Tendência</span>'
-                '</div>'
-            ),
+            '<div style="font-size:16px;font-weight:700;color:#e0f2fe;letter-spacing:.3px;'
+            'margin-bottom:14px;">Performance</div>',
             unsafe_allow_html=True,
         )
-        p1, p2 = st.columns(2)
-        with p1:
-            st.metric('Actions', f"{stats['total_actions']}")
-            st.metric('Σ ΔxT', f"{stats['sum_delta_xt']:.2f}")
-        with p2:
-            st.metric('Accuracy', f"{stats['accuracy_pct']:.1f}%")
-            st.metric('Avg. End xT', f"{stats['xt_end_mean']:.2f}")
-        st.info('Use esta área para inserir seus próximos KPIs de Performance.')
 
-    st.markdown('<h4 style="color:#ffffff;margin:12px 0 6px 0;">Match Trend Line Chart</h4>', unsafe_allow_html=True)
+        def _perf_block(border, label_color, label, value, sub):
+            return (
+                f'<div style="background:rgba(255,255,255,.04);border-left:4px solid {border};'
+                f'border-radius:10px;padding:16px 16px 13px 18px;">'
+                f'<div style="font-size:10px;color:{label_color};letter-spacing:.8px;'
+                f'text-transform:uppercase;font-weight:600;margin-bottom:8px;">{label}</div>'
+                f'<div style="font-size:30px;font-weight:700;color:#ffffff;line-height:1.1;">{value}</div>'
+                f'<div style="font-size:10px;color:#64748b;margin-top:5px;">{sub}</div>'
+                f'</div>'
+            )
+
+        # Row 1 — 3 blocks
+        r1a, r1b, r1c = st.columns(3)
+        with r1a:
+            st.markdown(_perf_block('#10b981', '#6ee7b7', 'Accuracy',
+                f"{stats['accuracy_pct']:.1f}%", 'Taxa de sucesso'), unsafe_allow_html=True)
+        with r1b:
+            st.markdown(_perf_block('#3b82f6', '#93c5fd', '% Positive ΔxT',
+                f"{stats['pos_pct']:.1f}%", 'Ações com ΔxT positivo'), unsafe_allow_html=True)
+        with r1c:
+            st.markdown(_perf_block('#f59e0b', '#fcd34d', 'Σ ΔxT',
+                f"{stats['sum_delta_xt']:.3f}", 'xT total gerado'), unsafe_allow_html=True)
+
+        st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+
+        # Row 2 — 2 blocks
+        r2a, r2b = st.columns(2)
+        with r2a:
+            st.markdown(_perf_block('#8b5cf6', '#c4b5fd', 'Σ End xT',
+                f"{stats['xt_end_sum']:.3f}", 'xT acumulado no destino'), unsafe_allow_html=True)
+        with r2b:
+            st.markdown(_perf_block('#ef4444', '#fca5a5', 'Σ xT Failed',
+                f"{stats['failed_xt_sum']:.3f}", 'xT cedido em ações perdidas'), unsafe_allow_html=True)
+
+    # ── Trend chart (full width) ───────────────────────────────────────────────
+    st.markdown('<h4 style="color:#ffffff;margin:24px 0 6px 0;">Match Trend Line Chart</h4>', unsafe_allow_html=True)
     metric_options = {
         'Σ ΔxT':               ('sum_delta_xt',  'Σ ΔxT'),
         '% Positive ΔxT':      ('pos_pct',        '% Positive ΔxT'),
@@ -1104,5 +1109,3 @@ with tab_stats:
     metric_key, metric_name = metric_options[metric_label]
     match_metrics_df = build_match_metrics(dfs_by_match)
     plot_metric_line(match_metrics_df, metric_key, metric_name)
-
-    st.caption('Mapping: origin (ring), destination (diamond), color by xT End, parallel lines for proximity-based groups.')
