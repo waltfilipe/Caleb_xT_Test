@@ -1435,8 +1435,12 @@ def render_top10_clickable(df, title='Top 10 - ΔxT (Adj.) and Video', key_prefi
     )
 
     if hasattr(data_event, 'selection') and data_event.selection.rows:
-        selected_row = int(data_event.selection.rows[0])
-        st.session_state[f'{key_prefix}_top10_row'] = selected_row
+        new_row = int(data_event.selection.rows[0])
+        if new_row != st.session_state.get(f'{key_prefix}_top10_row', None):
+            st.session_state[f'{key_prefix}_top10_row'] = new_row
+            st.session_state['selected_action'] = top.iloc[new_row]
+            st.session_state['last_map_click'] = None
+        selected_row = st.session_state[f'{key_prefix}_top10_row']
 
     selected = None
     if selected_row is not None and 0 <= int(selected_row) < len(top):
@@ -1785,11 +1789,11 @@ with tab_maps:
 
     with col_main:
 
-        DISPLAY_WIDTH = 700
+        DISPLAY_WIDTH = 840
 
         df_to_draw = df_base
 
-        map_col, top10_col = st.columns([1.95, 1.0], gap='medium')
+        map_col, top10_col = st.columns([2.15, 1.0], gap='small')
 
         with map_col:
 
@@ -1802,28 +1806,29 @@ with tab_maps:
 
 
             if click is not None:
-
-                rw, rh = img_obj.size
-
-                px = click['x'] * (rw / click['width'])
-
-                py = click['y'] * (rh / click['height'])
-
-                fx, fy = ax.transData.inverted().transform((px, rh - py))
-
-                df_sel = df_to_draw.copy()
-
-                df_sel['dist'] = np.sqrt((df_sel.x_start - fx)**2 + (df_sel.y_start - fy)**2)
-
-                cands = df_sel[df_sel['dist'] < 5.0]
-
-                if not cands.empty:
-
-                    st.session_state['selected_action'] = cands.sort_values('dist').iloc[0]
-
-
+                last_click = st.session_state.get('last_map_click', None)
+                if last_click != click:
+                    st.session_state['last_map_click'] = click
+                    st.session_state['map_top10_row'] = None
+                    rw, rh = img_obj.size
+                    px = click['x'] * (rw / click['width'])
+                    py = click['y'] * (rh / click['height'])
+                    fx, fy = ax.transData.inverted().transform((px, rh - py))
+                    df_sel = df_to_draw.copy()
+                    df_sel['dist'] = np.sqrt((df_sel.x_start - fx)**2 + (df_sel.y_start - fy)**2)
+                    cands = df_sel[df_sel['dist'] < 5.0]
+                    if not cands.empty:
+                        st.session_state['selected_action'] = cands.sort_values('dist').iloc[0]
 
             plt.close(fig)
+
+            selected_action = st.session_state.get('selected_action', None)
+            if selected_action is not None and has_video_value(selected_action.get('video')):
+                st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Video</h4>', unsafe_allow_html=True)
+                try:
+                    st.video(selected_action['video'])
+                except Exception:
+                    st.error('Video not found.')
 
         with top10_col:
 
@@ -1833,56 +1838,27 @@ with tab_maps:
 
             render_top10_clickable(top10_source, title='Top 10 ΔxT (Clique para video)', key_prefix='map')
 
+            st.markdown('<h4 style="color:#ffffff;margin:16px 0 4px 0;">Event Panel</h4>', unsafe_allow_html=True)
 
-
-        st.markdown('<h4 style="color:#ffffff;margin:6px 0 4px 0;">Event Panel</h4>', unsafe_allow_html=True)
-
-        selected_action = st.session_state.get('selected_action', None)
-
-        if selected_action is None:
-
-            st.info('Click the origin ring on the map to open the event.')
-
-        else:
-
-            act_color = matplotlib.colors.to_hex(CMAP_ACTION(NORM_ACTION(float(selected_action['xt_end']))))
-
-            st.markdown(
-
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
-
-                f'<span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:{act_color};border:2px solid #fff;"></span>'
-
-                f'<strong style="color:#fff;">Action #{int(selected_action["number"])} - {selected_action["type"]}</strong></div>',
-
-                unsafe_allow_html=True
-
-            )
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.write(f'**Start:** ({selected_action.x_start:.2f}, {selected_action.y_start:.2f})')
-                st.write(f'**End:** ({selected_action.x_end:.2f}, {selected_action.y_end:.2f})')
-                st.write(f'**Direction:** {selected_action["direction"].capitalize()}')
-                st.write(f'**Successful:** {"Yes" if selected_action["is_won"] else "No"}')
-            with c2:
-                st.metric('Distance', f'{selected_action["action_distance"]:.1f}m')
-                st.metric('ΔxT', f'{selected_action["delta_xt_adj"]:.4f}')
-
-            if has_video_value(selected_action['video']):
-
-                try:
-
-                    st.video(selected_action['video'])
-
-                except Exception:
-
-                    st.error(f'Video not found: {selected_action["video"]}')
-
+            if selected_action is None:
+                st.info('Selecione uma linha na tabela ou clique na bolinha de um evento no mapa para visualizar os detalhes.')
             else:
-
-                st.warning('No video attached to this event.')
+                act_color = matplotlib.colors.to_hex(CMAP_ACTION(NORM_ACTION(float(selected_action['xt_end']))))
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+                    f'<span style="display:inline-block;width:13px;height:13px;border-radius:50%;background:{act_color};border:2px solid #fff;"></span>'
+                    f'<strong style="color:#fff;">Action #{int(selected_action["number"])} - {selected_action["type"]}</strong></div>',
+                    unsafe_allow_html=True
+                )
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.write(f'**Start:** ({selected_action.x_start:.2f}, {selected_action.y_start:.2f})')
+                    st.write(f'**End:** ({selected_action.x_end:.2f}, {selected_action.y_end:.2f})')
+                    st.write(f'**Direction:** {selected_action["direction"].capitalize()}')
+                    st.write(f'**Successful:** {"Yes" if selected_action["is_won"] else "No"}')
+                with c2:
+                    st.metric('Distance', f'{selected_action["action_distance"]:.1f}m')
+                    st.metric('ΔxT', f'{selected_action["delta_xt_adj"]:.4f}')
 
         st.markdown('<h4 style="color:#ffffff;margin:8px 0 4px 0;">Zone Heatmaps</h4>', unsafe_allow_html=True)
 
@@ -2054,4 +2030,3 @@ with tab_stats:
 
 
     st.caption('Mapping: origin (ring), destination (diamond), color by xT End, and parallel lines for proximity-based groups.')
-
