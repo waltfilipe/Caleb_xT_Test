@@ -791,10 +791,10 @@ def _seg_intersect(a, b, c, d, eps=1e-9):
 
 
 
-def _action_visual(row, pos_ref):
-
+def _action_visual(row, pos_ref, is_selected=False):
+    if is_selected:
+        return '#00ffff', 1.0, 4.2, 10
     if not row['is_won']:
-
         return '#aab2be', 0.22, 1.55, 0
 
     dxt = float(row['delta_xt_adj'])
@@ -815,7 +815,7 @@ def _action_visual(row, pos_ref):
 
 
 
-def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
+def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5, selected_action_num=None):
 
     pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.95)
 
@@ -879,8 +879,8 @@ def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
                         break
 
     def draw_row(row, pos):
-
-        color, alpha, lw_scale, layer = _action_visual(row, pos_ref)
+        is_selected = (selected_action_num == row['number']) if selected_action_num is not None else False
+        color, alpha, lw_scale, layer = _action_visual(row, pos_ref, is_selected)
 
         ox0, oy0 = xs0_off[pos], ys0_off[pos]
 
@@ -903,7 +903,7 @@ def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
 
 
 
-    draw_order = sorted(range(len(df)), key=lambda i: (int(_action_visual(df.iloc[i], pos_ref)[3]), float(scores[i])))
+    draw_order = sorted(range(len(df)), key=lambda i: (int(_action_visual(df.iloc[i], pos_ref, (selected_action_num == df.iloc[i]['number']) if selected_action_num is not None else False)[3]), float(scores[i])))
 
     rows = list(df.iterrows())
 
@@ -1419,7 +1419,7 @@ def render_top10_clickable(df, title='Top 10 - ΔxT (Adj.) and Video', key_prefi
     show_df = pd.DataFrame({
         'Rank': top['rank'].map(lambda x: f'#{int(x)}'),
         'Action #': top['number'].astype(int),
-        'ΔxT (Adj.)': top['delta_xt_adj'].map(lambda x: f'{x:.4f}'),
+        'ΔxT': top['delta_xt_adj'].map(lambda x: f'{x:.4f}'),
         'xT End': top['xt_end'].map(lambda x: f'{x:.4f}'),
     })
 
@@ -1798,8 +1798,11 @@ with tab_maps:
         with map_col:
 
             st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Action Map</h4>', unsafe_allow_html=True)
+            
+            selected_action_map = st.session_state.get('selected_action', None)
+            sel_num = selected_action_map['number'] if selected_action_map is not None else None
 
-            img_obj, ax, fig = draw_action_map(df_to_draw, title=f'Action Map - {selected_match}', top_n_highlight=int(top_n), offset_step=1.5)
+            img_obj, ax, fig = draw_action_map(df_to_draw, title=f'Action Map - {selected_match}', top_n_highlight=int(top_n), offset_step=1.5, selected_action_num=sel_num)
 
             click = streamlit_image_coordinates(img_obj, width=DISPLAY_WIDTH)
 
