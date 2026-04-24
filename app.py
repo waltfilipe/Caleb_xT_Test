@@ -819,7 +819,7 @@ def draw_action_map(df, title, top_n_highlight=20, offset_step=1.5):
 
     pitch = Pitch(pitch_type='statsbomb', pitch_color='#1a1a2e', line_color='#ffffff', line_alpha=0.95)
 
-    fig, ax = pitch.draw(figsize=(7.6, 5.4))
+    fig, ax = pitch.draw(figsize=(8.2, 5.9))
 
     fig.set_facecolor('#1a1a2e')
 
@@ -1458,13 +1458,7 @@ def render_top10_clickable(df, title='Top 10 - ΔxT (Adj.) and Video', key_prefi
         unsafe_allow_html=True,
     )
 
-    if has_video_value(selected['video']):
-        try:
-            st.video(selected['video'])
-        except Exception:
-            st.error(f'Video not found: {selected["video"]}')
-    else:
-        st.warning('Este evento ainda nao tem video anexado.')
+    st.caption('Selecione o evento e use o Event Panel para visualizar detalhes e video.')
 
 
 
@@ -1791,11 +1785,11 @@ with tab_maps:
 
     with col_main:
 
-        DISPLAY_WIDTH = 620
+        DISPLAY_WIDTH = 700
 
         df_to_draw = df_base
 
-        map_col, top10_col = st.columns([1.75, 1.0], gap='medium')
+        map_col, top10_col = st.columns([1.95, 1.0], gap='medium')
 
         with map_col:
 
@@ -2060,3 +2054,4 @@ with tab_stats:
 
 
     st.caption('Mapping: origin (ring), destination (diamond), color by xT End, and parallel lines for proximity-based groups.')
+
