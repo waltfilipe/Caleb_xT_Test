@@ -884,18 +884,43 @@ with tab_maps:
     with col_main:
         DISPLAY_WIDTH = 840
         df_to_draw = df_base
+        top10_source = recompute_bonus(full_data[selected_match].copy())
+
+        # ── Pre-compute Top-10 df (same logic as render_top10_table) ──────────
+        # We need it here to resolve the table selection BEFORE drawing the map,
+        # so the highlight is always 1-to-1 with the current click (no lag).
+        _df_s_pre = top10_source[(top10_source['outcome'] == 'successful') & (top10_source['delta_xt_adj'] > 0)]
+        _top_pre = (
+            _df_s_pre.sort_values('delta_xt_adj', ascending=False).head(10).reset_index(drop=True)
+            if not _df_s_pre.empty else None
+        )
+
+        # Read the table widget's internal selection state BEFORE rendering the map.
+        # st.dataframe with on_select='rerun' stores its selection in session_state
+        # under the widget key from the *previous* render — which is exactly what
+        # we want: the row the user just clicked.
+        _table_state = st.session_state.get('map_top10_table', None)
+        _pre_table_rows = (
+            _table_state.get('selection', {}).get('rows', [])
+            if isinstance(_table_state, dict) else
+            (getattr(getattr(_table_state, 'selection', None), 'rows', None) or [])
+        )
+        if _pre_table_rows and _top_pre is not None:
+            _pre_row = int(_pre_table_rows[0])
+            if 0 <= _pre_row < len(_top_pre):
+                _new_sel = _top_pre.iloc[_pre_row]
+                # Only update if it's actually a different action
+                _cur_sel = st.session_state.get('selected_action', None)
+                if _cur_sel is None or int(_cur_sel['number']) != int(_new_sel['number']):
+                    st.session_state['selected_action'] = _new_sel
+                    st.session_state['last_map_click'] = None
 
         map_col, top10_col = st.columns([2.15, 1.0], gap='small')
 
-        # ══════════════════════════════════════════════════════════════════════
-        # PASS 1 – render interactive widgets and collect user input
-        # ══════════════════════════════════════════════════════════════════════
-
-        # ── Left: Action Map ─────────────────────────────────────────────────
+        # ── Left: Action Map (drawn with up-to-date selection) ────────────────
         with map_col:
             st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Action Map</h4>', unsafe_allow_html=True)
 
-            # Read current selection for the highlight (before any new input)
             _cur = st.session_state.get('selected_action', None)
             _sel_num = int(_cur['number']) if _cur is not None else None
 
@@ -926,13 +951,16 @@ with tab_maps:
         # ── Right: Top-10 table ───────────────────────────────────────────────
         with top10_col:
             st.markdown('<h4 style="color:#ffffff;margin:4px 0 3px 0;">Top 10 ΔxT</h4>', unsafe_allow_html=True)
-            top10_source = recompute_bonus(full_data[selected_match].copy())
             top_df, table_sel_row = render_top10_table(top10_source, key_prefix='map')
 
-            # If the user clicked a table row, overwrite the selected action
+            # Sync: if a row is selected in the table, make sure session_state is set
+            # (handles the case where the pre-read above missed an edge case)
             if table_sel_row is not None and top_df is not None:
-                st.session_state['selected_action'] = top_df.iloc[table_sel_row]
-                st.session_state['last_map_click'] = None  # clear so next map click is fresh
+                _candidate = top_df.iloc[table_sel_row]
+                _cur2 = st.session_state.get('selected_action', None)
+                if _cur2 is None or int(_cur2['number']) != int(_candidate['number']):
+                    st.session_state['selected_action'] = _candidate
+                    st.session_state['last_map_click'] = None
 
         # ══════════════════════════════════════════════════════════════════════
         # PASS 2 – read the now-correct selected_action and render output panels
